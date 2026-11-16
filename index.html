@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fred-Outils - Controle Sync</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,Arial,sans-serif}body{background:#101723;color:#f2f5fb;margin:0;padding:20px}main{max-width:750px;margin:auto}h1{font-size:1.65rem}p{line-height:1.5}.panel{background:#1b2738;border:1px solid #34445b;border-radius:14px;padding:18px;margin:16px 0}input,button{font:inherit}input{width:100%;max-width:100%;box-sizing:border-box}button{background:#3888ff;color:white;border:0;border-radius:10px;padding:13px 17px;margin-top:12px;font-weight:700}button:disabled{opacity:.5}li{margin:12px 0}.muted{color:#b7c6d9}.warn{color:#ffcf82}.ok{color:#9ee7b0}code{overflow-wrap:anywhere}details{margin-top:12px}summary{cursor:pointer}</style></head>
+<body><main><h1>Controle Sync</h1>
+<p>Diagnostic local des journaux FolderSync, Google Drive, OneDrive et Dropbox.</p>
+<div class="panel"><strong>Lecture seule et confidentialite</strong><p>Le fichier reste sur ton appareil : aucune transmission, aucune suppression, aucun acces a tes comptes. Les resultats ne prouvent pas qu'une synchronisation a reussi.</p>
+<label for="file">Choisir un journal texte (.txt, .log, .json ou .csv)</label><p><input id="file" type="file" accept=".txt,.log,.json,.csv,text/plain,application/json,text/csv"></p>
+<button id="run" disabled>Analyser le journal</button><p id="status" aria-live="polite" class="muted">Selectionne un fichier pour commencer.</p></div>
+<section class="panel" id="results" hidden aria-live="polite"><h2>Resultats</h2><div id="summary"></div><ul id="findings"></ul><p id="deletions" class="warn"></p><details><summary>Limites de l'analyse</summary><p>Les occurrences ne sont pas des incidents distincts. Un message 403 peut etre un quota ou un refus d'acces. Les mentions de suppression ne prouvent pas une suppression reelle. Seuls les motifs connus sont detectes.</p></details></section>
+<p class="muted">Version 1 - Fonctionne hors ligne apres ouverture. Ne charge pas de bibliotheque externe.</p></main>
+<script>
+"use strict";
+const rules=[
+ ["Quota Google",/ratelimitexceeded|resource_exhausted|quota exceeded|429.{0,50}google/i,"Espacer les tentatives et attendre la remise a zero du quota."],
+ ["Limite Dropbox",/too_many_write_operations|retry_after|429.{0,50}dropbox/i,"Attendre avant une nouvelle tentative."],
+ ["Jeton expire",/expired_access_token|invalid_grant|401.{0,50}token/i,"Verifier la connexion du compte dans FolderSync."],
+ ["DNS",/unable to resolve host|unknownhost|name or service not known|dns error/i,"Verifier la connexion reseau et la resolution DNS."],
+ ["Acces refuse",/\b403\b|permission.denied|access.denied/i,"Verifier si le message indique un quota ou une autorisation."],
+ ["Transfert echoue",/transfer failed|transfert echou[eé]|failed to upload|failed to download/i,"Consulter le journal original pour le fichier concerne."]
+];
+const deletion=/\b(deleted|deleting|deletion|suppression|supprim[eé]s?|removed?)\b/i;
+const input=document.getElementById("file"),run=document.getElementById("run"),status=document.getElementById("status");
+const results=document.getElementById("results"),findings=document.getElementById("findings"),summary=document.getElementById("summary"),deletions=document.getElementById("deletions");
+input.addEventListener("change",()=>{run.disabled=!input.files.length;status.textContent=input.files.length?"Fichier selectionne. Appuie sur Analyser.":"Selectionne un fichier.";results.hidden=true});
+run.addEventListener("click",async()=>{
+ const file=input.files[0];if(!file)return;
+ if(file.size>20*1024*1024){status.textContent="Fichier trop volumineux (limite 20 Mo).";return}
+ run.disabled=true;status.textContent="Analyse en cours...";
+ try{
+  const data=await file.text(),lines=data.split(/\r?\n/),counts=rules.map(()=>0),first=rules.map(()=>null);let deletionCount=0;
+  lines.forEach((line,i)=>{if(deletion.test(line))deletionCount++;rules.forEach((r,j)=>{if(r[1].test(line)){counts[j]++;if(first[j]===null)first[j]=i+1}})});
+  findings.replaceChildren();let total=0;
+  rules.forEach((r,i)=>{if(!counts[i])return;total+=counts[i];const li=document.createElement("li");const b=document.createElement("strong");b.textContent=r[0]+": "+counts[i]+" occurrence(s)";li.append(b,document.createElement("br"),document.createTextNode("Premiere ligne : "+first[i]+". Conseil : "+r[2]));findings.append(li)});
+  summary.textContent=total?total+" occurrence(s) de motifs d'erreur detectees.":"Aucun motif connu detecte. Cela ne garantit pas une synchronisation reussie.";
+  deletions.textContent="Lignes mentionnant une suppression : "+deletionCount+" (suppression non confirmee).";
+  results.hidden=false;status.textContent="Analyse terminee. Fichier non transmis.";
+ }catch(e){status.textContent="Impossible de lire ce fichier comme texte."}finally{run.disabled=false}
+});
+</script></body></html>
